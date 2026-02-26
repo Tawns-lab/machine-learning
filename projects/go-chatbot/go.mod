@@ -1,4 +1,4 @@
-module github.com/ethen8181/machine-learning/projects/go-chatbot
+module github.com/Tawns-lab/machine-learning/projects/go-chatbot
 
 go 1.24.7
 
