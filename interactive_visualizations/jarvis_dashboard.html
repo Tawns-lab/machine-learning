@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>J.A.R.V.I.S. — ASR Plumbing Dashboard</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #020810;
+    color: #90c8e0;
+    font-family: 'Courier New', monospace;
+    min-height: 100vh;
+    padding: 14px;
+    overflow-x: hidden;
+  }
+
+  /* Scanline overlay */
+  body::before {
+    content: '';
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.04) 2px, rgba(0,0,0,0.04) 4px);
+    pointer-events: none;
+    z-index: 999;
+  }
+
+  h1 {
+    text-align: center;
+    font-size: 1.4em;
+    letter-spacing: 8px;
+    color: #00e5ff;
+    text-shadow: 0 0 20px #00e5ff, 0 0 40px #00e5ff44;
+    margin-bottom: 2px;
+  }
+  .subtitle {
+    text-align: center;
+    font-size: 0.67em;
+    color: #005577;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    margin-bottom: 16px;
+  }
+
+  .grid-main {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+  .grid-bottom {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 12px;
+  }
+
+  .panel {
+    background: #030d18;
+    border: 1px solid #004466;
+    border-radius: 6px;
+    padding: 12px;
+    position: relative;
+    overflow: hidden;
+  }
+  .panel::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, #00e5ff44, transparent);
+  }
+  .panel-title {
+    font-size: 0.65em;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: #00aacc;
+    border-bottom: 1px solid #003344;
+    padding-bottom: 6px;
+    margin-bottom: 10px;
+  }
+
+  canvas { display: block; border-radius: 4px; }
+
+  /* WER Gate */
+  .wer-gate {
+    border: 2px solid #004466;
+    border-radius: 8px;
+    padding: 10px;
+    text-align: center;
+    transition: all 0.3s;
+  }
+  .wer-gate.ok { border-color: #00e5ff; box-shadow: 0 0 12px #00e5ff33; }
+  .wer-gate.warn { border-color: #f59e0b; box-shadow: 0 0 12px #f59e0b33; }
+  .wer-gate.fault {
+    border-color: #ff2233;
+    box-shadow: 0 0 20px #ff223355;
+    animation: redpulse 0.5s ease-in-out infinite alternate;
+  }
+  @keyframes redpulse {
+    from { box-shadow: 0 0 10px #ff223333; }
+    to   { box-shadow: 0 0 30px #ff2233cc; }
+  }
+  .wer-val { font-size: 2.2em; font-weight: bold; transition: color 0.3s; }
+  .wer-label { font-size: 0.65em; color: #005577; margin-top: 2px; letter-spacing: 2px; }
+  .wer-status { font-size: 0.72em; font-weight: bold; margin-top: 6px; letter-spacing: 1px; }
+
+  .slider-group { margin-bottom: 10px; }
+  .slider-label { display: flex; justify-content: space-between; font-size: 0.72em; color: #336688; margin-bottom: 4px; }
+  .slider-label .sv { color: #00e5ff; }
+  input[type=range] {
+    width: 100%; -webkit-appearance: none; height: 3px;
+    background: #003344; border-radius: 2px; outline: none;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 12px; height: 12px;
+    border-radius: 50%; background: #00e5ff; cursor: pointer;
+    box-shadow: 0 0 6px #00e5ff;
+  }
+
+  /* Routing matrix */
+  .routing-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+    margin-top: 6px;
+  }
+  .route-node {
+    border: 1px solid #003344;
+    border-radius: 5px;
+    padding: 6px 4px;
+    text-align: center;
+    font-size: 0.62em;
+    transition: all 0.3s;
+    min-height: 42px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+  .route-node.active { border-color: #00e5ff; background: #001a2a; box-shadow: 0 0 8px #00e5ff33; color: #00e5ff; }
+  .route-node.blocked { border-color: #ff2233; background: #1a0005; color: #ff2233; }
+  .route-node.idle { color: #223344; }
+
+  /* Integrity metrics */
+  .integrity-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .int-metric { background: #010a14; border: 1px solid #003344; border-radius: 5px; padding: 8px; text-align: center; }
+  .int-metric .lbl { font-size: 0.6em; color: #004466; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 3px; }
+  .int-metric .val { font-size: 1.25em; font-weight: bold; color: #00e5ff; text-shadow: 0 0 6px #00e5ff55; }
+
+  /* Transcription */
+  .transcript-box {
+    background: #010a14;
+    border: 1px solid #003344;
+    border-radius: 5px;
+    padding: 8px;
+    min-height: 58px;
+    font-size: 0.78em;
+    line-height: 1.7;
+    color: #a0c8e0;
+  }
+  .word-span { display: inline-block; margin-right: 3px; border-radius: 3px; padding: 1px 3px; transition: background 0.4s; }
+  .conf-hi  { background: #002a14; color: #00ff88; }
+  .conf-mid { background: #2a1a00; color: #f59e0b; }
+  .conf-low { background: #2a0008; color: #ff4455; }
+
+  /* Packet tracker */
+  #pktCanvas { background: #010a14; border-radius: 5px; }
+
+  /* Alert banner */
+  #alert-banner {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    background: #ff0022;
+    color: #fff;
+    text-align: center;
+    font-size: 1em;
+    font-weight: bold;
+    letter-spacing: 3px;
+    padding: 8px;
+    z-index: 1000;
+    display: none;
+    animation: blink 0.6s step-end infinite;
+    text-shadow: none;
+  }
+  @keyframes blink { 50% { background: #880011; } }
+</style>
+</head>
+<body>
+<div id="alert-banner">⚠ HARD FAULT — WER THRESHOLD EXCEEDED — ASR PIPELINE HALTED ⚠</div>
+
+<h1>J.A.R.V.I.S.</h1>
+<div class="subtitle">Just A Rather Very Intelligent System · ASR Plumbing Dashboard</div>
+
+<div class="grid-main">
+  <!-- Waveform panel -->
+  <div class="panel">
+    <div class="panel-title">Audio Waveform Input</div>
+    <canvas id="waveCanvas" height="80" style="width:100%"></canvas>
+    <div style="margin-top:8px;">
+      <div class="slider-group">
+        <div class="slider-label">Signal Amplitude <span class="sv" id="amp-val">0.7</span></div>
+        <input type="range" id="amp" min="0.1" max="1.0" step="0.05" value="0.7" oninput="updateWer()">
+      </div>
+      <div class="slider-group">
+        <div class="slider-label">Noise Floor <span class="sv" id="noise-val">0.15</span></div>
+        <input type="range" id="noise" min="0.0" max="0.5" step="0.01" value="0.15" oninput="updateWer()">
+      </div>
+    </div>
+  </div>
+
+  <!-- ASR / Phonetic Confidence panel -->
+  <div class="panel">
+    <div class="panel-title">ASR Transcription · Phonetic CI</div>
+    <div class="transcript-box" id="transcript"></div>
+    <canvas id="ciCanvas" height="50" style="width:100%; margin-top:8px;"></canvas>
+  </div>
+
+  <!-- WER Gate -->
+  <div class="panel">
+    <div class="panel-title">Word Error Rate Gate</div>
+    <div class="wer-gate ok" id="wer-gate">
+      <div class="wer-val" id="wer-val" style="color:#00e5ff">0.0%</div>
+      <div class="wer-label">Word Error Rate</div>
+      <div class="wer-status" id="wer-status" style="color:#00e5ff">NOMINAL</div>
+    </div>
+    <div style="margin-top:10px;">
+      <div class="slider-group">
+        <div class="slider-label">WER Fault Threshold <span class="sv" id="thresh-val">25%</span></div>
+        <input type="range" id="wer-thresh" min="5" max="60" step="1" value="25" oninput="updateWer()">
+      </div>
+      <div class="slider-group">
+        <div class="slider-label">Simulated WER <span class="sv" id="swer-val">8%</span></div>
+        <input type="range" id="sim-wer" min="0" max="70" step="1" value="8" oninput="updateWer()">
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="grid-main">
+  <!-- Routing plumbing -->
+  <div class="panel">
+    <div class="panel-title">Task Routing Plumbing</div>
+    <div class="routing-grid" id="routing-grid">
+      <div class="route-node active" id="rn-asr">ASR<br>Output</div>
+      <div class="route-node active" id="rn-butler">Butler<br>Filter</div>
+      <div class="route-node active" id="rn-hw">Hardware<br>Map</div>
+      <div class="route-node active" id="rn-exec">Execution<br>Engine</div>
+      <div class="route-node idle" id="rn-fb">Feedback<br>Bus</div>
+      <div class="route-node idle" id="rn-log">Audit<br>Log</div>
+      <div class="route-node idle" id="rn-cache">Response<br>Cache</div>
+      <div class="route-node idle" id="rn-out">Output<br>Layer</div>
+    </div>
+  </div>
+
+  <!-- In-flight packet tracker -->
+  <div class="panel">
+    <div class="panel-title">In-Flight Packet Tracker</div>
+    <canvas id="pktCanvas" height="100" style="width:100%"></canvas>
+  </div>
+
+  <!-- Integrity dashboard -->
+  <div class="panel">
+    <div class="panel-title">Live Integrity Dashboard</div>
+    <div class="integrity-row">
+      <div class="int-metric"><div class="lbl">Latency</div><div class="val" id="int-lat">--</div></div>
+      <div class="int-metric"><div class="lbl">Throughput</div><div class="val" id="int-tput">--</div></div>
+      <div class="int-metric"><div class="lbl">CI Score</div><div class="val" id="int-ci">--</div></div>
+      <div class="int-metric"><div class="lbl">Uptime</div><div class="val" id="int-uptime">--</div></div>
+    </div>
+    <canvas id="spikeCanvas" height="56" style="width:100%; margin-top:8px;"></canvas>
+  </div>
+</div>
+
+<script>
+// --- State ---
+let werFault = false;
+let ciValues = [];
+let spikeHistory = [];
+let pktList = [];
+let animTick = 0;
+let startTime = Date.now();
+let throughput = 0;
+let tputCounter = 0;
+
+const WORDS = [
+  ['initialize','route','matrix'], ['execute','butler','pipeline'], ['scan','hardware','map'],
+  ['deploy','inference','module'], ['confirm','task','vector'], ['activate','audio','input'],
+  ['validate','phonetic','frame'], ['process','waveform','signal'], ['analyze','confidence','interval'],
+];
+let wordSet = WORDS[0];
+let wordSetIdx = 0;
+let confMap = [];
+
+function genConfidence(wer) {
+  return wordSet.map(() => Math.max(0.05, Math.min(0.99, 0.95 - wer / 100 + (Math.random() - 0.3) * 0.25)));
+}
+
+function renderTranscript(confs) {
+  const box = document.getElementById('transcript');
+  box.innerHTML = wordSet.map((w, i) => {
+    const c = confs[i];
+    const cls = c > 0.75 ? 'conf-hi' : c > 0.45 ? 'conf-mid' : 'conf-low';
+    const title = (c * 100).toFixed(0) + '%';
+    return `<span class="word-span ${cls}" title="${title}">${w}</span>`;
+  }).join(' ');
+}
+
+function drawCI(confs) {
+  const canvas = document.getElementById('ciCanvas');
+  canvas.width = canvas.offsetWidth;
+  const W = canvas.width, H = 50;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = '#010a14';
+  ctx.fillRect(0, 0, W, H);
+
+  const n = confs.length;
+  const bw = W / (n + 1);
+  for (let i = 0; i < n; i++) {
+    const c = confs[i];
+    const x = bw * (i + 1);
+    const h = c * (H - 10);
+    const col = c > 0.75 ? '#00ff88' : c > 0.45 ? '#f59e0b' : '#ff4455';
+    ctx.fillStyle = col;
+    ctx.shadowBlur = 6;
+    ctx.shadowColor = col;
+    ctx.fillRect(x - bw * 0.3, H - h - 2, bw * 0.6, h);
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#336655';
+    ctx.font = '8px Courier New';
+    ctx.textAlign = 'center';
+    ctx.fillText((c * 100).toFixed(0), x, H - 1);
+  }
+  ctx.fillStyle = '#003344';
+  ctx.font = '8px Courier New';
+  ctx.textAlign = 'left';
+  ctx.fillText('CI%', 2, 10);
+}
+
+function updateWer() {
+  const amp = parseFloat(document.getElementById('amp').value);
+  const noise = parseFloat(document.getElementById('noise').value);
+  const thresh = parseInt(document.getElementById('wer-thresh').value);
+  const simWer = parseInt(document.getElementById('sim-wer').value);
+
+  document.getElementById('amp-val').textContent = amp.toFixed(2);
+  document.getElementById('noise-val').textContent = noise.toFixed(2);
+  document.getElementById('thresh-val').textContent = thresh + '%';
+  document.getElementById('swer-val').textContent = simWer + '%';
+
+  // Effective WER influenced by amp/noise
+  const effectiveWer = Math.min(100, simWer * (1 + noise / amp));
+  document.getElementById('wer-val').textContent = effectiveWer.toFixed(1) + '%';
+
+  const gate = document.getElementById('wer-gate');
+  const status = document.getElementById('wer-status');
+  const val = document.getElementById('wer-val');
+
+  if (effectiveWer >= thresh) {
+    gate.className = 'wer-gate fault';
+    status.textContent = '⚠ HARD FAULT — PIPELINE HALTED';
+    status.style.color = '#ff2233';
+    val.style.color = '#ff2233';
+    werFault = true;
+    document.getElementById('alert-banner').style.display = 'block';
+    blockRouting();
+  } else if (effectiveWer >= thresh * 0.7) {
+    gate.className = 'wer-gate warn';
+    status.textContent = 'WARNING — APPROACHING THRESHOLD';
+    status.style.color = '#f59e0b';
+    val.style.color = '#f59e0b';
+    werFault = false;
+    document.getElementById('alert-banner').style.display = 'none';
+    restoreRouting();
+  } else {
+    gate.className = 'wer-gate ok';
+    status.textContent = 'NOMINAL';
+    status.style.color = '#00e5ff';
+    val.style.color = '#00e5ff';
+    werFault = false;
+    document.getElementById('alert-banner').style.display = 'none';
+    restoreRouting();
+  }
+
+  confMap = genConfidence(effectiveWer);
+  renderTranscript(confMap);
+  drawCI(confMap);
+
+  const avgCI = confMap.reduce((a,b)=>a+b,0) / confMap.length;
+  document.getElementById('int-ci').textContent = (avgCI * 100).toFixed(0) + '%';
+  document.getElementById('int-ci').style.color = avgCI > 0.7 ? '#00e5ff' : avgCI > 0.45 ? '#f59e0b' : '#ff4455';
+}
+
+function blockRouting() {
+  ['rn-hw', 'rn-exec', 'rn-cache', 'rn-out'].forEach(id => {
+    const el = document.getElementById(id);
+    el.classList.remove('active', 'idle');
+    el.classList.add('blocked');
+  });
+}
+
+function restoreRouting() {
+  ['rn-asr', 'rn-butler', 'rn-hw', 'rn-exec'].forEach(id => {
+    const el = document.getElementById(id);
+    el.classList.remove('blocked', 'idle');
+    el.classList.add('active');
+  });
+  ['rn-fb', 'rn-log', 'rn-cache', 'rn-out'].forEach(id => {
+    const el = document.getElementById(id);
+    el.classList.remove('blocked', 'active');
+    el.classList.add('idle');
+  });
+}
+
+// Waveform animation
+const waveCanvas = document.getElementById('waveCanvas');
+const waveCtx = waveCanvas.getContext('2d');
+let wavePhase = 0;
+
+function drawWaveform() {
+  waveCanvas.width = waveCanvas.offsetWidth;
+  const W = waveCanvas.width, H = 80;
+  waveCtx.clearRect(0, 0, W, H);
+  waveCtx.fillStyle = '#010a14';
+  waveCtx.fillRect(0, 0, W, H);
+
+  const amp = parseFloat(document.getElementById('amp').value);
+  const noise = parseFloat(document.getElementById('noise').value);
+
+  waveCtx.strokeStyle = werFault ? '#ff2233' : '#00e5ff';
+  waveCtx.lineWidth = 1.5;
+  waveCtx.shadowBlur = werFault ? 0 : 6;
+  waveCtx.shadowColor = '#00e5ff';
+  waveCtx.beginPath();
+  for (let x = 0; x < W; x++) {
+    const t = x / W;
+    const y = H / 2 +
+      amp * 28 * Math.sin(wavePhase + t * 30) +
+      amp * 10 * Math.sin(wavePhase * 1.7 + t * 70) +
+      (Math.random() - 0.5) * noise * 20;
+    x === 0 ? waveCtx.moveTo(x, y) : waveCtx.lineTo(x, y);
+  }
+  waveCtx.stroke();
+  waveCtx.shadowBlur = 0;
+  wavePhase += werFault ? 0.01 : 0.08;
+}
+
+// Spike history canvas
+const spikeCanvas = document.getElementById('spikeCanvas');
+const spikeCtx = spikeCanvas.getContext('2d');
+
+function drawSpike() {
+  spikeCanvas.width = spikeCanvas.offsetWidth;
+  const W = spikeCanvas.width, H = 56;
+  spikeCtx.clearRect(0, 0, W, H);
+  spikeCtx.fillStyle = '#010a14';
+  spikeCtx.fillRect(0, 0, W, H);
+
+  if (spikeHistory.length > W) spikeHistory.shift();
+  spikeHistory.push(werFault ? 1.0 : 0.1 + Math.random() * 0.3);
+
+  spikeCtx.strokeStyle = '#00e5ff';
+  spikeCtx.lineWidth = 1;
+  spikeCtx.beginPath();
+  spikeHistory.forEach((v, i) => {
+    const x = i * (W / spikeHistory.length);
+    const y = H - v * (H - 4) - 2;
+    const col = v > 0.7 ? '#ff2233' : '#00e5ff';
+    spikeCtx.strokeStyle = col;
+    i === 0 ? spikeCtx.moveTo(x, y) : spikeCtx.lineTo(x, y);
+  });
+  spikeCtx.stroke();
+
+  spikeCtx.fillStyle = '#003344';
+  spikeCtx.font = '8px Courier New';
+  spikeCtx.fillText('LATENCY SPIKES', 4, 10);
+}
+
+// Packet tracker canvas
+const pktCanvas = document.getElementById('pktCanvas');
+const pktCtx = pktCanvas.getContext('2d');
+
+const LANES = ['ASR→Butler', 'Butler→HW', 'HW→Exec', 'Exec→Out'];
+
+function drawPackets() {
+  pktCanvas.width = pktCanvas.offsetWidth;
+  const W = pktCanvas.width, H = 100;
+  pktCtx.clearRect(0, 0, W, H);
+  pktCtx.fillStyle = '#010a14';
+  pktCtx.fillRect(0, 0, W, H);
+
+  const laneH = H / LANES.length;
+  LANES.forEach((name, i) => {
+    const y = i * laneH + laneH / 2;
+    pktCtx.strokeStyle = '#002233';
+    pktCtx.lineWidth = 1;
+    pktCtx.beginPath();
+    pktCtx.moveTo(60, y);
+    pktCtx.lineTo(W - 10, y);
+    pktCtx.stroke();
+
+    pktCtx.fillStyle = '#003344';
+    pktCtx.font = '8px Courier New';
+    pktCtx.textAlign = 'left';
+    pktCtx.fillText(name, 2, y + 3);
+  });
+
+  // Spawn packets
+  if (!werFault && animTick % 18 === 0) {
+    const lane = Math.floor(Math.random() * LANES.length);
+    pktList.push({ x: 60, lane, speed: 1.5 + Math.random() });
+    tputCounter++;
+  }
+  if (werFault && pktList.length > 0 && animTick % 40 === 0) {
+    pktList.push({ x: 60, lane: 0, speed: 0.3, fault: true });
+  }
+
+  pktList = pktList.filter(p => p.x < W);
+  pktList.forEach(pkt => {
+    pkt.x += pkt.speed;
+    const y = pkt.lane * laneH + laneH / 2;
+    const col = pkt.fault ? '#ff2233' : '#00e5ff';
+    pktCtx.beginPath();
+    pktCtx.arc(pkt.x, y, 3.5, 0, Math.PI * 2);
+    pktCtx.fillStyle = col;
+    pktCtx.shadowBlur = 8;
+    pktCtx.shadowColor = col;
+    pktCtx.fill();
+    pktCtx.shadowBlur = 0;
+  });
+}
+
+// Metrics updater
+function updateMetrics() {
+  const elapsed = Math.floor((Date.now() - startTime) / 1000);
+  const m = Math.floor(elapsed / 60);
+  const s = elapsed % 60;
+  document.getElementById('int-uptime').textContent = m + ':' + String(s).padStart(2, '0');
+
+  const lat = werFault ? 999 + Math.floor(Math.random() * 200) : 8 + Math.floor(Math.random() * 15);
+  document.getElementById('int-lat').textContent = lat + 'ms';
+  document.getElementById('int-lat').style.color = lat > 100 ? '#ff4455' : '#00e5ff';
+
+  const tput = werFault ? 0 : Math.max(0, tputCounter - Math.floor(Math.random() * 2));
+  document.getElementById('int-tput').textContent = (tput * 2) + '/s';
+  tputCounter = 0;
+}
+
+// Word cycling
+function cycleWords() {
+  wordSetIdx = (wordSetIdx + 1) % WORDS.length;
+  wordSet = WORDS[wordSetIdx];
+  updateWer();
+}
+
+// Routing node flicker
+function flickerRouting() {
+  if (!werFault) {
+    const nodes = ['rn-fb', 'rn-log', 'rn-cache', 'rn-out'];
+    nodes.forEach(id => {
+      const el = document.getElementById(id);
+      if (Math.random() > 0.6) {
+        el.classList.remove('idle');
+        el.classList.add('active');
+        setTimeout(() => {
+          if (!werFault) { el.classList.remove('active'); el.classList.add('idle'); }
+        }, 300 + Math.random() * 400);
+      }
+    });
+  }
+}
+
+// Main animation loop
+function mainLoop() {
+  animTick++;
+  drawWaveform();
+  drawPackets();
+  drawSpike();
+  if (animTick % 60 === 0) updateMetrics();
+  if (animTick % 90 === 0) cycleWords();
+  if (animTick % 45 === 0) flickerRouting();
+  requestAnimationFrame(mainLoop);
+}
+
+// Init
+updateWer();
+setInterval(updateMetrics, 1000);
+mainLoop();
+</script>
+</body>
+</html>

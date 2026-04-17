@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SAIL Butler Agent — Supervised Agent-in-the-Loop</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #080b14;
+    color: #c0cce0;
+    font-family: 'Courier New', monospace;
+    min-height: 100vh;
+    padding: 16px;
+  }
+  h1 {
+    text-align: center;
+    color: #a855f7;
+    font-size: 1.2em;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    margin-bottom: 3px;
+    text-shadow: 0 0 14px #a855f766;
+  }
+  .subtitle { text-align: center; color: #5a4a7a; font-size: 0.72em; margin-bottom: 18px; letter-spacing: 1px; }
+
+  .top-row { display: flex; gap: 14px; margin-bottom: 14px; }
+  .panel {
+    background: #0c1022;
+    border: 1px solid #2a1a4a;
+    border-radius: 8px;
+    padding: 14px;
+  }
+  .panel-title {
+    color: #a855f7;
+    font-size: 0.7em;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    border-bottom: 1px solid #2a1a4a;
+    padding-bottom: 7px;
+    margin-bottom: 12px;
+  }
+
+  /* Pipeline stages */
+  .pipeline {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding: 10px 0;
+  }
+  .stage {
+    flex-shrink: 0;
+    text-align: center;
+    width: 100px;
+    position: relative;
+  }
+  .stage-box {
+    border: 2px solid #2a1a4a;
+    border-radius: 8px;
+    padding: 8px 4px;
+    background: #0c1022;
+    transition: all 0.3s;
+    cursor: default;
+    min-height: 56px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+  .stage-box.active {
+    border-color: #a855f7;
+    background: #1a0a2e;
+    box-shadow: 0 0 14px #a855f744;
+  }
+  .stage-box.done {
+    border-color: #22c55e;
+    background: #0a1a12;
+    box-shadow: 0 0 8px #22c55e33;
+  }
+  .stage-box.rejected {
+    border-color: #ef4444;
+    background: #1a0a0a;
+    box-shadow: 0 0 8px #ef444433;
+  }
+  .stage-box.pending {
+    border-color: #334;
+    opacity: 0.5;
+  }
+  .stage-icon { font-size: 1.3em; margin-bottom: 3px; }
+  .stage-name { font-size: 0.65em; color: #8899bb; letter-spacing: 0.5px; }
+  .stage-status { font-size: 0.6em; margin-top: 2px; }
+
+  .arrow {
+    flex-shrink: 0;
+    width: 28px;
+    text-align: center;
+    color: #3a2a5a;
+    font-size: 1.1em;
+    padding: 0 2px;
+  }
+  .arrow.live { color: #a855f7; text-shadow: 0 0 8px #a855f7; }
+
+  /* Supervision gate */
+  .gate-panel { flex: 1; min-width: 280px; }
+  .gate-buttons { display: flex; gap: 8px; margin-top: 10px; }
+  .btn {
+    flex: 1;
+    padding: 9px;
+    border: none;
+    border-radius: 6px;
+    font-family: 'Courier New', monospace;
+    font-size: 0.75em;
+    font-weight: bold;
+    letter-spacing: 1px;
+    cursor: pointer;
+    text-transform: uppercase;
+    transition: all 0.2s;
+  }
+  .btn-approve { background: #052a12; border: 1px solid #22c55e; color: #22c55e; }
+  .btn-approve:hover { background: #0a4a22; box-shadow: 0 0 10px #22c55e44; }
+  .btn-adjust  { background: #2a1a00; border: 1px solid #f59e0b; color: #f59e0b; }
+  .btn-adjust:hover  { background: #4a3000; box-shadow: 0 0 10px #f59e0b44; }
+  .btn-reject  { background: #2a0808; border: 1px solid #ef4444; color: #ef4444; }
+  .btn-reject:hover  { background: #4a1010; box-shadow: 0 0 10px #ef444444; }
+  .btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+  .pending-task {
+    background: #060912;
+    border: 1px solid #2a1a4a;
+    border-radius: 6px;
+    padding: 10px;
+    font-size: 0.75em;
+    min-height: 50px;
+    color: #c0cce0;
+    line-height: 1.5;
+  }
+  .pending-task .task-label { color: #a855f7; font-size: 0.7em; margin-bottom: 4px; letter-spacing: 1px; }
+
+  /* Metrics row */
+  .metrics-row { display: flex; gap: 14px; margin-bottom: 14px; }
+  .metric-card {
+    flex: 1;
+    background: #060912;
+    border: 1px solid #2a1a4a;
+    border-radius: 8px;
+    padding: 12px;
+    text-align: center;
+  }
+  .metric-card .lbl { font-size: 0.67em; color: #5a4a7a; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 4px; }
+  .metric-card .val { font-size: 1.5em; font-weight: bold; color: #a855f7; text-shadow: 0 0 8px #a855f766; }
+  .metric-card .unit { font-size: 0.62em; color: #5a4a7a; margin-top: 2px; }
+
+  /* Optimization bar */
+  .opt-bar-wrap { width: 100%; background: #1a1030; border-radius: 4px; height: 8px; margin-top: 6px; overflow: hidden; }
+  .opt-bar { height: 8px; border-radius: 4px; background: linear-gradient(90deg, #a855f7, #22c55e); transition: width 0.6s; box-shadow: 0 0 8px #a855f766; }
+
+  /* Feedback loop canvas */
+  #fbCanvas { width: 100%; display: block; border-radius: 6px; background: #060912; }
+
+  /* Quest path */
+  .quest-panel { }
+  .quest-states { display: flex; gap: 10px; margin-top: 8px; }
+  .quest-state {
+    flex: 1;
+    border: 1px solid #2a1a4a;
+    border-radius: 6px;
+    padding: 8px;
+    text-align: center;
+    font-size: 0.68em;
+    opacity: 0.4;
+    transition: all 0.3s;
+  }
+  .quest-state.active-state { opacity: 1; box-shadow: 0 0 10px var(--sc); border-color: var(--sc); }
+  #qs-strict { --sc: #ef4444; color: #ef4444; }
+  #qs-adapt  { --sc: #f59e0b; color: #f59e0b; }
+  #qs-improve { --sc: #22c55e; color: #22c55e; }
+
+  /* Heatmap */
+  #heatmap { display: grid; grid-template-columns: repeat(8, 1fr); gap: 3px; margin-top: 8px; }
+  .heat-cell {
+    aspect-ratio: 1;
+    border-radius: 3px;
+    transition: background 0.4s;
+  }
+
+  .log-box {
+    background: #060912;
+    border: 1px solid #1a1030;
+    border-radius: 6px;
+    padding: 8px;
+    height: 110px;
+    overflow-y: auto;
+    font-size: 0.68em;
+    line-height: 1.6;
+  }
+  .log-box::-webkit-scrollbar { width: 4px; }
+  .log-box::-webkit-scrollbar-track { background: #060912; }
+  .log-box::-webkit-scrollbar-thumb { background: #2a1a4a; }
+  .log-entry { color: #5a4a7a; }
+  .log-entry.approve { color: #22c55e; }
+  .log-entry.adjust  { color: #f59e0b; }
+  .log-entry.reject  { color: #ef4444; }
+  .log-entry.system  { color: #a855f7; }
+
+  .bottom-row { display: flex; gap: 14px; }
+</style>
+</head>
+<body>
+<h1>SAIL Butler Agent</h1>
+<div class="subtitle">Supervised Agent-in-the-Loop · Human-in-the-Loop Task Pipeline</div>
+
+<!-- Pipeline -->
+<div class="panel" style="margin-bottom:14px;">
+  <div class="panel-title">Task Pipeline</div>
+  <div class="pipeline" id="pipeline">
+    <div class="stage" id="stage-ingress">
+      <div class="stage-box active"><div class="stage-icon">📥</div><div class="stage-name">Ingress</div><div class="stage-status" style="color:#a855f7">●</div></div>
+    </div>
+    <div class="arrow" id="arr-0">→</div>
+    <div class="stage" id="stage-intent">
+      <div class="stage-box pending"><div class="stage-icon">🧠</div><div class="stage-name">Intent Parse</div><div class="stage-status">○</div></div>
+    </div>
+    <div class="arrow" id="arr-1">→</div>
+    <div class="stage" id="stage-butler">
+      <div class="stage-box pending"><div class="stage-icon">🤵</div><div class="stage-name">Butler Filter</div><div class="stage-status">○</div></div>
+    </div>
+    <div class="arrow" id="arr-2">→</div>
+    <div class="stage" id="stage-dryrun">
+      <div class="stage-box pending"><div class="stage-icon">🧪</div><div class="stage-name">Dry Run</div><div class="stage-status">○</div></div>
+    </div>
+    <div class="arrow" id="arr-3">→</div>
+    <div class="stage" id="stage-review">
+      <div class="stage-box pending"><div class="stage-icon">👁</div><div class="stage-name">Op Review</div><div class="stage-status">○</div></div>
+    </div>
+    <div class="arrow" id="arr-4">→</div>
+    <div class="stage" id="stage-execute">
+      <div class="stage-box pending"><div class="stage-icon">⚡</div><div class="stage-name">Execute</div><div class="stage-status">○</div></div>
+    </div>
+  </div>
+</div>
+
+<div class="top-row">
+  <!-- Gate panel -->
+  <div class="panel gate-panel">
+    <div class="panel-title">Operator Supervision Gate</div>
+    <div class="pending-task">
+      <div class="task-label">Pending Task</div>
+      <div id="task-desc">Waiting for task to reach review stage...</div>
+    </div>
+    <div class="gate-buttons">
+      <button class="btn btn-approve" id="btn-approve" onclick="decision('approve')" disabled>✓ Approve</button>
+      <button class="btn btn-adjust"  id="btn-adjust"  onclick="decision('adjust')"  disabled>~ Adjust</button>
+      <button class="btn btn-reject"  id="btn-reject"  onclick="decision('reject')"  disabled>✗ Reject</button>
+    </div>
+  </div>
+
+  <!-- Optimization index -->
+  <div class="panel" style="min-width:200px;">
+    <div class="panel-title">Optimization Index</div>
+    <div style="font-size:2em; font-weight:bold; color:#a855f7; text-shadow:0 0 10px #a855f766; margin-bottom:6px;" id="opt-val">0.00</div>
+    <div style="font-size:0.65em; color:#5a4a7a; margin-bottom:6px;">Supervisor Preference Fit</div>
+    <div class="opt-bar-wrap"><div class="opt-bar" id="opt-bar" style="width:0%"></div></div>
+    <div style="margin-top:10px; font-size:0.68em; color:#5a4a7a;">
+      <div>Approvals: <span id="cnt-approve" style="color:#22c55e">0</span></div>
+      <div>Adjustments: <span id="cnt-adjust" style="color:#f59e0b">0</span></div>
+      <div>Rejections: <span id="cnt-reject" style="color:#ef4444">0</span></div>
+    </div>
+  </div>
+
+  <!-- Confidence Integrity -->
+  <div class="panel" style="min-width:160px;">
+    <div class="panel-title">Confidence Integrity</div>
+    <div style="font-size:2em; font-weight:bold; color:#22c55e; text-shadow:0 0 10px #22c55e66;" id="conf-val">--</div>
+    <div style="font-size:0.62em; color:#5a4a7a; margin-bottom:8px;">CI Score</div>
+    <div id="heatmap" class="heatmap"></div>
+  </div>
+</div>
+
+<div class="metrics-row">
+  <div class="metric-card"><div class="lbl">Tasks Processed</div><div class="val" id="m-tasks">0</div><div class="unit">total</div></div>
+  <div class="metric-card"><div class="lbl">Avg Latency</div><div class="val" id="m-lat">--</div><div class="unit">ms</div></div>
+  <div class="metric-card"><div class="lbl">Feedback Loops</div><div class="val" id="m-fb">0</div><div class="unit">corrections</div></div>
+  <div class="metric-card"><div class="lbl">Quest Stage</div><div class="val" id="m-quest" style="font-size:1em; padding-top:4px;">INIT</div><div class="unit">path mode</div></div>
+</div>
+
+<div class="bottom-row">
+  <!-- Feedback canvas -->
+  <div class="panel" style="flex:2;">
+    <div class="panel-title">Feedback Loop · Loss Function Correction Packets</div>
+    <canvas id="fbCanvas" height="130"></canvas>
+  </div>
+
+  <!-- Quest path -->
+  <div class="panel" style="flex:1;">
+    <div class="panel-title">Quest Path</div>
+    <div class="quest-states">
+      <div class="quest-state" id="qs-strict">⛔<br>Strict<br>Failure</div>
+      <div class="quest-state" id="qs-adapt">🔄<br>Adapt</div>
+      <div class="quest-state" id="qs-improve">✅<br>Improve</div>
+    </div>
+    <div class="log-box" id="log-box" style="margin-top:10px;"></div>
+  </div>
+</div>
+
+<script>
+const TASKS = [
+  "Schedule meeting with Dr. Chen re: Q3 ML review",
+  "Deploy model v2.1 to staging cluster",
+  "Archive session logs older than 30 days",
+  "Send weekly performance digest to team leads",
+  "Run hyperparameter sweep on ResNet-50 config",
+  "Update API rate limits for external consumers",
+  "Sync embeddings cache with vector DB replica",
+  "Generate monthly inference cost report",
+  "Rotate service account credentials",
+  "Tag and push Docker image v3.0.2 to registry",
+];
+
+const STAGE_IDS = ['ingress', 'intent', 'butler', 'dryrun', 'review', 'execute'];
+const STAGE_NAMES = ['ingress', 'intent', 'butler', 'dryrun', 'review', 'execute'];
+
+let currentStage = 0;
+let stageTimer = 0;
+let awaitingDecision = false;
+let taskIdx = 0;
+let optIndex = 0;
+let counters = { approve: 0, adjust: 0, reject: 0 };
+let totalTasks = 0;
+let feedbackCount = 0;
+let heatValues = new Array(32).fill(0.3);
+let latencies = [];
+let stageStartTime = Date.now();
+let questState = 'init';
+let fbPackets = [];
+let fbAnimFrame = 0;
+
+function log(msg, cls) {
+  const box = document.getElementById('log-box');
+  const ts = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const el = document.createElement('div');
+  el.className = 'log-entry ' + (cls || '');
+  el.textContent = '[' + ts + '] ' + msg;
+  box.appendChild(el);
+  box.scrollTop = box.scrollHeight;
+  while (box.children.length > 50) box.removeChild(box.firstChild);
+}
+
+function setStageState(stageIdx, state) {
+  const el = document.querySelector(`#stage-${STAGE_IDS[stageIdx]} .stage-box`);
+  const statusEl = el.querySelector('.stage-status');
+  el.className = 'stage-box ' + state;
+  if (state === 'active') { statusEl.textContent = '●'; statusEl.style.color = '#a855f7'; }
+  else if (state === 'done') { statusEl.textContent = '✓'; statusEl.style.color = '#22c55e'; }
+  else if (state === 'rejected') { statusEl.textContent = '✗'; statusEl.style.color = '#ef4444'; }
+  else { statusEl.textContent = '○'; statusEl.style.color = '#334'; }
+  const arr = document.getElementById('arr-' + stageIdx);
+  if (arr) arr.className = 'arrow ' + (state === 'done' ? 'live' : '');
+}
+
+function resetPipeline() {
+  for (let i = 0; i < STAGE_IDS.length; i++) setStageState(i, 'pending');
+}
+
+function advancePipeline() {
+  if (awaitingDecision) return;
+
+  if (currentStage === 0) {
+    stageStartTime = Date.now();
+    log('New task ingested: "' + TASKS[taskIdx % TASKS.length].substring(0, 40) + '..."', 'system');
+  }
+
+  setStageState(currentStage, 'active');
+  stageTimer = setTimeout(() => {
+    if (currentStage < STAGE_IDS.length - 2) {
+      setStageState(currentStage, 'done');
+      currentStage++;
+      if (currentStage === 4) {
+        // At review gate
+        awaitingDecision = true;
+        setStageState(currentStage, 'active');
+        document.getElementById('task-desc').textContent = TASKS[taskIdx % TASKS.length];
+        ['approve', 'adjust', 'reject'].forEach(id => document.getElementById('btn-' + id).disabled = false);
+        log('Awaiting operator decision...', 'system');
+      } else {
+        advancePipeline();
+      }
+    }
+  }, 600 + Math.random() * 400);
+}
+
+function decision(type) {
+  ['approve', 'adjust', 'reject'].forEach(id => document.getElementById('btn-' + id).disabled = true);
+  awaitingDecision = false;
+  counters[type]++;
+  document.getElementById('cnt-' + type).textContent = counters[type];
+
+  const latMs = Date.now() - stageStartTime + Math.round(200 + Math.random() * 300);
+  latencies.push(latMs);
+  document.getElementById('m-lat').textContent = Math.round(latencies.reduce((a,b)=>a+b,0) / latencies.length);
+
+  if (type === 'approve') {
+    log('Approved → Executing task', 'approve');
+    setStageState(4, 'done');
+    currentStage = 5;
+    advanceExecute();
+    updateOptIndex(0.06);
+    updateQuestState('improve');
+  } else if (type === 'adjust') {
+    log('Adjusted → Re-routing with corrections', 'adjust');
+    setStageState(4, 'done');
+    currentStage = 5;
+    advanceExecute();
+    updateOptIndex(0.02);
+    updateQuestState('adapt');
+    spawnFbPacket('adjust');
+  } else {
+    log('Rejected → Loss Function Correction applied', 'reject');
+    setStageState(4, 'rejected');
+    feedbackCount++;
+    document.getElementById('m-fb').textContent = feedbackCount;
+    updateOptIndex(-0.01);
+    updateQuestState('strict');
+    spawnFbPacket('reject');
+    setTimeout(() => {
+      resetPipeline();
+      currentStage = 0;
+      taskIdx++;
+      advancePipeline();
+    }, 1400);
+    return;
+  }
+}
+
+function advanceExecute() {
+  setTimeout(() => {
+    setStageState(5, 'active');
+    setTimeout(() => {
+      setStageState(5, 'done');
+      totalTasks++;
+      document.getElementById('m-tasks').textContent = totalTasks;
+      log('Task completed successfully', 'approve');
+      taskIdx++;
+      setTimeout(() => {
+        resetPipeline();
+        currentStage = 0;
+        advancePipeline();
+      }, 800);
+    }, 700 + Math.random() * 400);
+  }, 300);
+}
+
+function updateOptIndex(delta) {
+  optIndex = Math.max(0, Math.min(1, optIndex + delta));
+  document.getElementById('opt-val').textContent = optIndex.toFixed(2);
+  document.getElementById('opt-bar').style.width = (optIndex * 100) + '%';
+  updateHeatmap();
+  updateConfidence();
+}
+
+function updateHeatmap() {
+  for (let i = 0; i < heatValues.length; i++) {
+    heatValues[i] = Math.max(0.05, Math.min(1, heatValues[i] + (Math.random() - 0.45) * 0.15 + optIndex * 0.05));
+  }
+  const cells = document.querySelectorAll('.heat-cell');
+  cells.forEach((c, i) => {
+    const v = heatValues[i];
+    const r = Math.round(lerp(30, 168, v));
+    const g = Math.round(lerp(10, 85, v));
+    const b = Math.round(lerp(60, 247, v));
+    c.style.background = `rgb(${r},${g},${b})`;
+  });
+}
+
+function updateConfidence() {
+  const avg = heatValues.reduce((a,b)=>a+b,0) / heatValues.length;
+  const ci = (avg * 100).toFixed(0);
+  document.getElementById('conf-val').textContent = ci + '%';
+  const el = document.getElementById('conf-val');
+  el.style.color = avg > 0.65 ? '#22c55e' : avg > 0.4 ? '#f59e0b' : '#ef4444';
+}
+
+function updateQuestState(state) {
+  questState = state;
+  document.getElementById('m-quest').textContent = state.toUpperCase();
+  ['strict', 'adapt', 'improve'].forEach(s => document.getElementById('qs-' + s).classList.remove('active-state'));
+  const map = { strict: 'strict', adapt: 'adapt', improve: 'improve' };
+  if (map[state]) document.getElementById('qs-' + map[state]).classList.add('active-state');
+}
+
+function lerp(a, b, t) { return a + (b - a) * t; }
+
+function spawnFbPacket(type) {
+  fbPackets.push({ t: 0, type, id: Math.random() });
+}
+
+// Feedback canvas animation
+const fbCanvas = document.getElementById('fbCanvas');
+const fbCtx = fbCanvas.getContext('2d');
+
+function drawFeedbackLoop() {
+  fbCanvas.width = fbCanvas.offsetWidth;
+  const W = fbCanvas.width;
+  const H = 130;
+  fbCtx.clearRect(0, 0, W, H);
+  fbCtx.fillStyle = '#060912';
+  fbCtx.fillRect(0, 0, W, H);
+
+  // Pipeline line
+  const lineY = 40;
+  fbCtx.strokeStyle = '#2a1a4a';
+  fbCtx.lineWidth = 2;
+  fbCtx.beginPath();
+  fbCtx.moveTo(20, lineY);
+  fbCtx.lineTo(W - 20, lineY);
+  fbCtx.stroke();
+
+  // Feedback arc
+  fbCtx.strokeStyle = '#3a1a5a';
+  fbCtx.lineWidth = 1.5;
+  fbCtx.setLineDash([4, 5]);
+  fbCtx.beginPath();
+  fbCtx.moveTo(W - 30, lineY);
+  fbCtx.bezierCurveTo(W - 10, lineY + 60, 10, lineY + 60, 30, lineY);
+  fbCtx.stroke();
+  fbCtx.setLineDash([]);
+
+  // Labels
+  fbCtx.fillStyle = '#2a1a4a';
+  fbCtx.font = '9px Courier New';
+  fbCtx.textAlign = 'center';
+  fbCtx.fillText('INGRESS', 60, lineY - 10);
+  fbCtx.fillText('REVIEW', W / 2, lineY - 10);
+  fbCtx.fillText('EXECUTE', W - 60, lineY - 10);
+  fbCtx.fillText('← Loss Function Correction', W / 2, H - 8);
+
+  // Stage dots
+  [60, W / 2, W - 60].forEach(x => {
+    fbCtx.beginPath();
+    fbCtx.arc(x, lineY, 5, 0, Math.PI * 2);
+    fbCtx.fillStyle = '#a855f7';
+    fbCtx.shadowBlur = 6;
+    fbCtx.shadowColor = '#a855f7';
+    fbCtx.fill();
+    fbCtx.shadowBlur = 0;
+  });
+
+  // Animate packets
+  fbAnimFrame++;
+  fbPackets = fbPackets.filter(p => p.t < 1);
+  for (const pkt of fbPackets) {
+    pkt.t += 0.012;
+    // Forward path on top line
+    const fwdX = lerp(60, W - 60, Math.min(pkt.t * 2, 1));
+    if (pkt.t < 0.5) {
+      const col = pkt.type === 'reject' ? '#ef4444' : '#f59e0b';
+      fbCtx.beginPath();
+      fbCtx.arc(fwdX, lineY, 4, 0, Math.PI * 2);
+      fbCtx.fillStyle = col;
+      fbCtx.shadowBlur = 10;
+      fbCtx.shadowColor = col;
+      fbCtx.fill();
+      fbCtx.shadowBlur = 0;
+    } else {
+      // Feedback arc return
+      const bt = (pkt.t - 0.5) * 2;
+      const bx = lerp(W - 30, 30, bt);
+      const ctrlT = bt < 0.5 ? bt * 2 : (1 - bt) * 2;
+      const by = lineY + ctrlT * 60;
+      fbCtx.beginPath();
+      fbCtx.arc(bx, by, 4, 0, Math.PI * 2);
+      fbCtx.fillStyle = '#a855f7';
+      fbCtx.shadowBlur = 10;
+      fbCtx.shadowColor = '#a855f7';
+      fbCtx.fill();
+      fbCtx.shadowBlur = 0;
+    }
+  }
+
+  requestAnimationFrame(drawFeedbackLoop);
+}
+
+// Build heatmap cells
+const hm = document.getElementById('heatmap');
+for (let i = 0; i < 32; i++) {
+  const c = document.createElement('div');
+  c.className = 'heat-cell';
+  hm.appendChild(c);
+}
+
+// Init
+log('SAIL Butler Agent initialized', 'system');
+log('Pipeline ready — first task queuing...', 'system');
+updateHeatmap();
+updateConfidence();
+setTimeout(() => advancePipeline(), 600);
+drawFeedbackLoop();
+
+// Auto-heartbeat heatmap
+setInterval(() => {
+  if (!awaitingDecision) updateHeatmap();
+  updateConfidence();
+}, 2000);
+</script>
+</body>
+</html>

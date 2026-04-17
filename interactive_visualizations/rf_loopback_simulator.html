@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RF Wireless Repeater-to-Tower Loopback Simulator</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0a0e1a;
+    color: #c8d8e8;
+    font-family: 'Courier New', monospace;
+    min-height: 100vh;
+    padding: 20px;
+  }
+  h1 {
+    text-align: center;
+    color: #00d4ff;
+    font-size: 1.3em;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+    text-shadow: 0 0 12px #00d4ff88;
+  }
+  .subtitle {
+    text-align: center;
+    color: #4a7a9b;
+    font-size: 0.75em;
+    margin-bottom: 20px;
+    letter-spacing: 1px;
+  }
+  .layout {
+    display: grid;
+    grid-template-columns: 320px 1fr;
+    gap: 16px;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+  .panel {
+    background: #0d1626;
+    border: 1px solid #1a3a5c;
+    border-radius: 8px;
+    padding: 16px;
+  }
+  .panel-title {
+    color: #00aaff;
+    font-size: 0.75em;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    border-bottom: 1px solid #1a3a5c;
+    padding-bottom: 8px;
+    margin-bottom: 14px;
+  }
+  .slider-group {
+    margin-bottom: 16px;
+  }
+  .slider-label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.78em;
+    color: #88aacc;
+    margin-bottom: 4px;
+  }
+  .slider-label span.val {
+    color: #00d4ff;
+    font-weight: bold;
+  }
+  input[type=range] {
+    width: 100%;
+    -webkit-appearance: none;
+    height: 4px;
+    background: #1a3a5c;
+    border-radius: 2px;
+    outline: none;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #00d4ff;
+    cursor: pointer;
+    box-shadow: 0 0 6px #00d4ff;
+  }
+  .metrics {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+  .metric-card {
+    background: #091220;
+    border: 1px solid #1a3a5c;
+    border-radius: 6px;
+    padding: 10px;
+    text-align: center;
+  }
+  .metric-label {
+    font-size: 0.68em;
+    color: #4a7a9b;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+  .metric-value {
+    font-size: 1.3em;
+    font-weight: bold;
+    color: #00d4ff;
+    text-shadow: 0 0 8px #00d4ff66;
+  }
+  .metric-unit {
+    font-size: 0.65em;
+    color: #4a7a9b;
+    margin-top: 2px;
+  }
+  .fault-indicator {
+    border-radius: 6px;
+    padding: 10px 14px;
+    text-align: center;
+    font-size: 0.82em;
+    font-weight: bold;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    transition: all 0.4s;
+    margin-top: 10px;
+  }
+  .fault-ok {
+    background: #0a2a1a;
+    border: 1px solid #00ff88;
+    color: #00ff88;
+    text-shadow: 0 0 8px #00ff8866;
+    box-shadow: 0 0 10px #00ff8822;
+  }
+  .fault-warn {
+    background: #2a1a00;
+    border: 1px solid #ffaa00;
+    color: #ffaa00;
+    text-shadow: 0 0 8px #ffaa0066;
+    box-shadow: 0 0 10px #ffaa0022;
+  }
+  .fault-crit {
+    background: #2a0a0a;
+    border: 1px solid #ff3333;
+    color: #ff3333;
+    text-shadow: 0 0 8px #ff333366;
+    box-shadow: 0 0 10px #ff333322;
+    animation: blink 1s step-end infinite;
+  }
+  @keyframes blink {
+    50% { opacity: 0.5; }
+  }
+  canvas {
+    width: 100%;
+    border-radius: 6px;
+    background: #060c18;
+    display: block;
+  }
+  .formula-box {
+    background: #060c18;
+    border: 1px solid #1a3a5c;
+    border-radius: 6px;
+    padding: 10px;
+    font-size: 0.7em;
+    color: #4a7a9b;
+    line-height: 1.8;
+    margin-top: 10px;
+  }
+  .formula-box span { color: #88aacc; }
+</style>
+</head>
+<body>
+<h1>RF Wireless Repeater-to-Tower Loopback Simulator</h1>
+<div class="subtitle">BTS ↔ Donor Antenna ↔ Repeater ↔ Uplink ↔ BTS</div>
+
+<div class="layout">
+  <div>
+    <div class="panel">
+      <div class="panel-title">Signal Parameters</div>
+      <div class="slider-group">
+        <div class="slider-label">Distance (Repeater→BTS) <span class="val" id="dist-val">5.0 km</span></div>
+        <input type="range" id="dist" min="0.1" max="50" step="0.1" value="5" oninput="update()">
+      </div>
+      <div class="slider-group">
+        <div class="slider-label">Transmit Power <span class="val" id="txpow-val">30 dBm</span></div>
+        <input type="range" id="txpow" min="-10" max="50" step="1" value="30" oninput="update()">
+      </div>
+      <div class="slider-group">
+        <div class="slider-label">Frequency <span class="val" id="freq-val">900 MHz</span></div>
+        <input type="range" id="freq" min="100" max="5800" step="10" value="900" oninput="update()">
+      </div>
+      <div class="slider-group">
+        <div class="slider-label">Repeater Gain <span class="val" id="gain-val">20 dB</span></div>
+        <input type="range" id="gain" min="0" max="60" step="1" value="20" oninput="update()">
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top:14px;">
+      <div class="panel-title">Live Metrics</div>
+      <div class="metrics">
+        <div class="metric-card">
+          <div class="metric-label">FSPL</div>
+          <div class="metric-value" id="fspl-v">--</div>
+          <div class="metric-unit">dB</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">RSSI @ BTS</div>
+          <div class="metric-value" id="rssi-v">--</div>
+          <div class="metric-unit">dBm</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">RTT</div>
+          <div class="metric-value" id="rtt-v">--</div>
+          <div class="metric-unit">μs</div>
+        </div>
+      </div>
+      <div id="fault-box" class="fault-indicator fault-ok">SIGNAL NOMINAL</div>
+      <div class="formula-box">
+        <span>FSPL</span> = 20·log₁₀(d) + 20·log₁₀(f) + 20·log₁₀(4π/c)<br>
+        <span>RSSI</span> = TxPower + Gain − FSPL<br>
+        <span>RTT</span> = 2·d / c &nbsp;(c = 3×10⁸ m/s)
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">Signal Path Animation</div>
+    <canvas id="canvas" height="440"></canvas>
+  </div>
+</div>
+
+<script>
+const C = 3e8;
+let animFrame = 0;
+let packets = [];
+let rssiVal = 0;
+
+function fspl(d_km, f_mhz) {
+  return 20 * Math.log10(d_km * 1000) + 20 * Math.log10(f_mhz * 1e6) + 20 * Math.log10(4 * Math.PI / C);
+}
+
+function update() {
+  const d = parseFloat(document.getElementById('dist').value);
+  const txp = parseFloat(document.getElementById('txpow').value);
+  const f = parseFloat(document.getElementById('freq').value);
+  const g = parseFloat(document.getElementById('gain').value);
+
+  document.getElementById('dist-val').textContent = d.toFixed(1) + ' km';
+  document.getElementById('txpow-val').textContent = txp.toFixed(0) + ' dBm';
+  document.getElementById('freq-val').textContent = f.toFixed(0) + ' MHz';
+  document.getElementById('gain-val').textContent = g.toFixed(0) + ' dB';
+
+  const loss = fspl(d, f);
+  const rssi = txp + g - loss;
+  const rtt = (2 * d * 1000) / C * 1e6;
+
+  rssiVal = rssi;
+
+  document.getElementById('fspl-v').textContent = loss.toFixed(1);
+  document.getElementById('rssi-v').textContent = rssi.toFixed(1);
+  document.getElementById('rtt-v').textContent = rtt.toFixed(1);
+
+  const fb = document.getElementById('fault-box');
+  if (rssi >= -75) {
+    fb.className = 'fault-indicator fault-ok';
+    fb.textContent = 'SIGNAL NOMINAL  (' + rssi.toFixed(1) + ' dBm ≥ -75)';
+  } else if (rssi >= -90) {
+    fb.className = 'fault-indicator fault-warn';
+    fb.textContent = 'WEAK SIGNAL  (' + rssi.toFixed(1) + ' dBm)';
+  } else {
+    fb.className = 'fault-indicator fault-crit';
+    fb.textContent = '⚠ LOOPBACK FAULT  (' + rssi.toFixed(1) + ' dBm < -90)';
+  }
+}
+
+function spawnPacket() {
+  packets.push({ t: 0, dir: 'down' });
+}
+
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+
+function resizeCanvas() {
+  canvas.width = canvas.offsetWidth;
+  canvas.height = 440;
+}
+
+function drawNode(x, y, label, sublabel, color) {
+  ctx.save();
+  ctx.shadowBlur = 18;
+  ctx.shadowColor = color;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.roundRect(x - 55, y - 22, 110, 44, 8);
+  ctx.stroke();
+  ctx.restore();
+  ctx.fillStyle = color;
+  ctx.font = 'bold 11px Courier New';
+  ctx.textAlign = 'center';
+  ctx.fillText(label, x, y + 2);
+  if (sublabel) {
+    ctx.fillStyle = '#4a7a9b';
+    ctx.font = '9px Courier New';
+    ctx.fillText(sublabel, x, y + 16);
+  }
+}
+
+function drawArrow(x1, y1, x2, y2, color, dashed) {
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.5;
+  if (dashed) ctx.setLineDash([5, 4]);
+  ctx.shadowBlur = 6;
+  ctx.shadowColor = color;
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  ctx.lineTo(x2, y2);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  const angle = Math.atan2(y2 - y1, x2 - x1);
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(x2, y2);
+  ctx.lineTo(x2 - 8 * Math.cos(angle - 0.4), y2 - 8 * Math.sin(angle - 0.4));
+  ctx.lineTo(x2 - 8 * Math.cos(angle + 0.4), y2 - 8 * Math.sin(angle + 0.4));
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
+function lerp(a, b, t) { return a + (b - a) * t; }
+
+function animate() {
+  resizeCanvas();
+  const W = canvas.width;
+  const H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+
+  ctx.fillStyle = '#060c18';
+  ctx.fillRect(0, 0, W, H);
+
+  // Grid
+  ctx.strokeStyle = '#0d1a2a';
+  ctx.lineWidth = 1;
+  for (let x = 0; x < W; x += 40) {
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+  }
+  for (let y = 0; y < H; y += 40) {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+  }
+
+  const cx = W / 2;
+  const nodes = {
+    bts:    { x: cx, y: 60,  label: 'BTS',           sub: 'Base Transceiver Station', color: '#00d4ff' },
+    donor:  { x: cx - 120, y: 180, label: 'Donor Antenna', sub: 'Rx from BTS',        color: '#00aaff' },
+    rep:    { x: cx, y: 280, label: 'Repeater',      sub: 'Amplify + Filter',          color: '#4488ff' },
+    uplink: { x: cx + 120, y: 180, label: 'Uplink Ant.',  sub: 'Tx to BTS',            color: '#00aaff' },
+  };
+
+  // Draw connections
+  drawArrow(nodes.bts.x, nodes.bts.y + 22, nodes.donor.x + 40, nodes.donor.y - 16, '#00aaff44', true);
+  drawArrow(nodes.donor.x + 55, nodes.donor.y + 10, nodes.rep.x - 40, nodes.rep.y - 10, '#4488ff66', false);
+  drawArrow(nodes.rep.x + 40, nodes.rep.y - 10, nodes.uplink.x - 55, nodes.uplink.y + 10, '#4488ff66', false);
+  drawArrow(nodes.uplink.x - 40, nodes.uplink.y - 16, nodes.bts.x, nodes.bts.y + 22, '#00d4ff', false);
+
+  // Loop label
+  ctx.fillStyle = '#4a7a9b';
+  ctx.font = '9px Courier New';
+  ctx.textAlign = 'center';
+  ctx.fillText('LOOPBACK PATH', cx, 360);
+
+  // Draw loopback arc
+  ctx.save();
+  ctx.strokeStyle = '#223366';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 6]);
+  ctx.beginPath();
+  ctx.arc(cx, 300, 80, 0.2, Math.PI - 0.2, false);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+
+  // Draw nodes
+  for (const n of Object.values(nodes)) {
+    drawNode(n.x, n.y, n.label, n.sub, n.color);
+  }
+
+  // RSSI gauge
+  const gaugeX = 30;
+  const gaugeY = H - 100;
+  const gaugeH = 80;
+  ctx.fillStyle = '#0d1626';
+  ctx.strokeStyle = '#1a3a5c';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(gaugeX, gaugeY, 22, gaugeH);
+  const pct = Math.max(0, Math.min(1, (rssiVal + 110) / 60));
+  const fillH = gaugeH * pct;
+  const gCol = rssiVal >= -75 ? '#00ff88' : rssiVal >= -90 ? '#ffaa00' : '#ff3333';
+  ctx.fillStyle = gCol;
+  ctx.shadowBlur = 8;
+  ctx.shadowColor = gCol;
+  ctx.fillRect(gaugeX + 1, gaugeY + gaugeH - fillH, 20, fillH);
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = '#4a7a9b';
+  ctx.font = '9px Courier New';
+  ctx.textAlign = 'center';
+  ctx.fillText('RSSI', gaugeX + 11, gaugeY - 5);
+  ctx.fillStyle = gCol;
+  ctx.font = 'bold 9px Courier New';
+  ctx.fillText(rssiVal.toFixed(0), gaugeX + 11, gaugeY + gaugeH + 14);
+
+  // Animated packets
+  animFrame++;
+  if (animFrame % 40 === 0) spawnPacket();
+
+  // Path waypoints
+  const path = [
+    { x: nodes.bts.x, y: nodes.bts.y + 22 },
+    { x: (nodes.bts.x + nodes.donor.x) / 2 + 20, y: (nodes.bts.y + nodes.donor.y) / 2 - 10 },
+    { x: nodes.donor.x + 40, y: nodes.donor.y - 16 },
+    { x: nodes.donor.x + 55, y: nodes.donor.y + 10 },
+    { x: (nodes.donor.x + nodes.rep.x) / 2 - 20, y: (nodes.donor.y + nodes.rep.y) / 2 },
+    { x: nodes.rep.x - 40, y: nodes.rep.y - 10 },
+    { x: nodes.rep.x + 40, y: nodes.rep.y - 10 },
+    { x: (nodes.rep.x + nodes.uplink.x) / 2 + 20, y: (nodes.rep.y + nodes.uplink.y) / 2 },
+    { x: nodes.uplink.x - 55, y: nodes.uplink.y + 10 },
+    { x: nodes.uplink.x - 40, y: nodes.uplink.y - 16 },
+    { x: nodes.bts.x, y: nodes.bts.y + 22 },
+  ];
+  const totalSteps = path.length - 1;
+
+  packets = packets.filter(p => p.t < 1);
+  for (const pkt of packets) {
+    pkt.t += 0.008;
+    const seg = Math.min(Math.floor(pkt.t * totalSteps), totalSteps - 1);
+    const segT = pkt.t * totalSteps - seg;
+    const px = lerp(path[seg].x, path[seg + 1].x, segT);
+    const py = lerp(path[seg].y, path[seg + 1].y, segT);
+
+    const pktColor = rssiVal >= -75 ? '#00ff88' : rssiVal >= -90 ? '#ffaa00' : '#ff5555';
+    ctx.save();
+    ctx.shadowBlur = 12;
+    ctx.shadowColor = pktColor;
+    ctx.fillStyle = pktColor;
+    ctx.beginPath();
+    ctx.arc(px, py, 4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // Frequency label
+  ctx.fillStyle = '#4a7a9b';
+  ctx.font = '10px Courier New';
+  ctx.textAlign = 'left';
+  ctx.fillText('f = ' + document.getElementById('freq').value + ' MHz', 10, 20);
+  ctx.fillText('d = ' + parseFloat(document.getElementById('dist').value).toFixed(1) + ' km', 10, 34);
+
+  requestAnimationFrame(animate);
+}
+
+update();
+animate();
+</script>
+</body>
+</html>
